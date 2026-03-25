@@ -174,10 +174,11 @@ def run_experiment(config, budget_seconds, run_id):
     env["RUN_ID"] = run_id
     env["ITERATIONS"] = "20000"
     env["MAX_WALLCLOCK_SECONDS"] = str(budget_seconds)
-    env["VAL_LOSS_EVERY"] = "0"  # only validate at the end
+    env["VAL_LOSS_EVERY"] = "9999"  # validate at end only (via last_step)
     env["VAL_BATCH_SIZE"] = "131072"  # smaller val batch for speed
     env["TRAIN_LOG_EVERY"] = "100"
     env["EVAL_STRIDE"] = "0"  # disable slow sliding window eval
+    env["WARMUP_STEPS"] = "5"  # fewer warmup steps to save time
 
     # Data paths
     env["DATA_PATH"] = os.environ.get("DATA_PATH", "/workspace/parameter-golf/data/datasets/fineweb10B_sp1024")
@@ -199,7 +200,7 @@ def run_experiment(config, budget_seconds, run_id):
     try:
         result = subprocess.run(
             cmd, env=env, capture_output=True, text=True,
-            timeout=budget_seconds + 600  # extra 10 min for warmup + eval on slow GPUs
+            timeout=budget_seconds + 1200  # extra 20 min for warmup + compile + eval on slow GPUs
         )
         output = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
@@ -254,7 +255,7 @@ def run_experiment(config, budget_seconds, run_id):
 def main():
     parser = argparse.ArgumentParser(description="Autosearch: autonomous experiment loop")
     parser.add_argument("--hours", type=float, default=8, help="Total hours to run")
-    parser.add_argument("--budget-minutes", type=float, default=3, help="Minutes per experiment")
+    parser.add_argument("--budget-minutes", type=float, default=5, help="Minutes per experiment")
     parser.add_argument("--results", type=str, default="results.tsv", help="Results file")
     parser.add_argument("--randomize", action="store_true", help="Randomize experiment order")
     args = parser.parse_args()
