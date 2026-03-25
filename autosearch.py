@@ -200,12 +200,12 @@ def run_experiment(config, budget_seconds, run_id):
     try:
         result = subprocess.run(
             cmd, env=env, capture_output=True, text=True,
-            timeout=budget_seconds + 1200  # extra 20 min for warmup + compile + eval on slow GPUs
+            timeout=budget_seconds + 600  # extra 10 min for warmup + final val (quant eval may timeout, we read from log)
         )
         output = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
-        print(f"  TIMEOUT after {time.time()-t0:.0f}s")
-        return None, 0
+        print(f"  TIMEOUT after {time.time()-t0:.0f}s — checking log file...")
+        output = ""  # will read from log file below
     except Exception as e:
         print(f"  CRASH: {e}")
         return None, 0
@@ -240,13 +240,35 @@ def run_experiment(config, budget_seconds, run_id):
             except (ValueError, IndexError):
                 pass
 
+    # Also try reading from log file (more reliable than subprocess stdout)
+    log_file = f"logs/{run_id}.txt"
+    if os.path.exists(log_file):
+        try:
+            with open(log_file) as f:
+                for line in f:
+                    if "val_bpb:" in line and "step:" in line:
+                        try:
+                            bpb_part = line.split("val_bpb:")[1].split()[0]
+                            val_bpb = float(bpb_part)
+                            step_part = line.split("step:")[1].split("/")[0]
+                            steps = max(steps, int(step_part))
+                        except (ValueError, IndexError):
+                            pass
+                    if "stopping_early" in line or ("step:" in line and "train_loss" in line):
+                        try:
+                            step_part = line.split("step:")[1].split("/")[0]
+                            steps = max(steps, int(step_part))
+                        except (ValueError, IndexError):
+                            pass
+        except Exception:
+            pass
+
     if val_bpb is not None:
         print(f"  val_bpb: {val_bpb:.4f} | steps: {steps}")
     else:
         print(f"  CRASH — could not parse val_bpb")
-        # Print last 20 lines for debugging
         lines = output.strip().split("\n")
-        for l in lines[-20:]:
+        for l in lines[-10:]:
             print(f"    {l}")
 
     return val_bpb, steps
