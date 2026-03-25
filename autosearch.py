@@ -62,7 +62,9 @@ BASELINE_CONFIG = {
     "LATE_QAT_THRESHOLD": 0.15,
     "QK_GAIN_INIT": 1.5,
     "LOGIT_SOFTCAP": 30.0,
-    "TRAIN_BATCH_TOKENS": 524288,
+    "TRAIN_BATCH_TOKENS": 131072,  # Smaller batch for A40 speed
+    "TRAIN_SEQ_LEN": 1024,  # Shorter seq for A40 speed
+    "EVAL_SEQ_LEN": 1024,
     "SEED": 1337,
 }
 
@@ -173,8 +175,9 @@ def run_experiment(config, budget_seconds, run_id):
     env["ITERATIONS"] = "20000"
     env["MAX_WALLCLOCK_SECONDS"] = str(budget_seconds)
     env["VAL_LOSS_EVERY"] = "0"  # only validate at the end
-    env["VAL_BATCH_SIZE"] = "524288"
-    env["TRAIN_LOG_EVERY"] = "500"
+    env["VAL_BATCH_SIZE"] = "131072"  # smaller val batch for speed
+    env["TRAIN_LOG_EVERY"] = "100"
+    env["EVAL_STRIDE"] = "0"  # disable slow sliding window eval
 
     # Data paths
     env["DATA_PATH"] = os.environ.get("DATA_PATH", "/workspace/parameter-golf/data/datasets/fineweb10B_sp1024")
@@ -196,7 +199,7 @@ def run_experiment(config, budget_seconds, run_id):
     try:
         result = subprocess.run(
             cmd, env=env, capture_output=True, text=True,
-            timeout=budget_seconds + 300  # extra 5 min for eval
+            timeout=budget_seconds + 600  # extra 10 min for warmup + eval on slow GPUs
         )
         output = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
@@ -251,7 +254,7 @@ def run_experiment(config, budget_seconds, run_id):
 def main():
     parser = argparse.ArgumentParser(description="Autosearch: autonomous experiment loop")
     parser.add_argument("--hours", type=float, default=8, help="Total hours to run")
-    parser.add_argument("--budget-minutes", type=float, default=5, help="Minutes per experiment")
+    parser.add_argument("--budget-minutes", type=float, default=3, help="Minutes per experiment")
     parser.add_argument("--results", type=str, default="results.tsv", help="Results file")
     parser.add_argument("--randomize", action="store_true", help="Randomize experiment order")
     args = parser.parse_args()
